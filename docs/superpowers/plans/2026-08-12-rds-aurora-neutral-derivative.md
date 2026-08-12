@@ -19,12 +19,14 @@
 - The only root behavior change is replacing the nontechnical gate with `create = var.create`; upstream-default behavior remains identical.
 - Upstream v10.2.0 contains no `*.tftest.hcl`; the direct-expression assertion, full HCL parity, and 13-root init/validate provide the focused behavioral proof.
 - Sanitize before copying; never import upstream Git history or create a GitHub-native fork.
+- Before Task 1 imports source, commit and push this authorization amendment without force, require a clean worktree, and require local `HEAD` to equal `origin/neutral/v10.2.0-neutral.1`.
+- Build every pristine comparison tree with `git archive` from the committed `HEAD` of the already-verified local upstream clone; do not clone, fetch, or introduce a second upstream source.
 - Push each milestone without force. On a blocker, persist and push `docs/neutralization/BLOCKER.md`, open a coherent draft PR, update the IAM campaign journal, and continue to Security Groups.
 
 ## File Map
 
 - Import: complete upstream v10.2.0 tree except `.git/`.
-- Modify before copy: `main.tf:4`, `variables.tf:858-862`, `wrappers/main.tf:95`, and `README.md:5,366,438-442`.
+- Modify before copy: `main.tf:4`, `variables.tf:858-862`, `wrappers/main.tf:95`, `README.md:5,366,438-442`, and the authorized forbidden bullet at `CHANGELOG.md:403`.
 - Modify after copy: `README.md`, `wrappers/README.md`, `wrappers/dsql/README.md` — derivative identity and reserved-tag sources.
 - Modify after copy: `examples/s3-import/main.tf:96-97` — HTTPS Git source pinned to existing `v5.14.1-neutral.1`; remove the Registry-only version constraint.
 - Modify after copy: five inherited workflow files — notices, full-SHA pins, permissions.
@@ -36,7 +38,7 @@
 ### Task 1: Failing Acceptance Checks and Sanitized Import
 
 **Files:**
-- Modify: `main.tf`, `variables.tf`, `wrappers/main.tf`, `README.md`
+- Modify: `main.tf`, `variables.tf`, `wrappers/main.tf`, `README.md`, `CHANGELOG.md`
 - Create: `UPSTREAM.md`
 - Import: all other upstream files
 
@@ -44,21 +46,34 @@
 - Consumes: immutable upstream tag and target planning branch
 - Produces: neutral root interface where `local.create` is controlled solely by `var.create`
 
-- [ ] **Step 1: Verify planning branch and clone exact upstream**
+- [ ] **Step 1: Verify the pushed amendment and archive the verified upstream commit**
 
 ```bash
 test "$(git branch --show-current)" = "neutral/v10.2.0-neutral.1"
 test "$(git remote get-url origin)" = "git@github.com:joeroberts/terraform-aws-rds-aurora.git"
 test -z "$(git status --porcelain)"
-aurora_import_root=$(mktemp -d /private/tmp/terraform-aws-rds-aurora-v10.2.0.XXXXXX)
-git clone --quiet --depth 1 --branch v10.2.0 \
-  https://github.com/terraform-aws-modules/terraform-aws-rds-aurora.git \
-  "$aurora_import_root/source"
-test "$(git -C "$aurora_import_root/source" rev-parse HEAD)" = \
+git fetch origin neutral/v10.2.0-neutral.1
+test "$(git rev-parse HEAD)" = "$(git rev-parse origin/neutral/v10.2.0-neutral.1)"
+test "$(git log -1 --format=%s)" = "docs: amend Aurora neutral import safeguards"
+test -n "${aurora_verified_clone:?set aurora_verified_clone to the already-verified local upstream clone}"
+test "$(git -C "$aurora_verified_clone" rev-parse HEAD)" = \
   "2c3946c8191278ad974bbb077da5e03986e24f4d"
+test "$(git -C "$aurora_verified_clone" rev-parse refs/tags/v10.2.0^{commit})" = \
+  "2c3946c8191278ad974bbb077da5e03986e24f4d"
+test -z "$(git -C "$aurora_verified_clone" status --porcelain)"
+aurora_import_root=$(mktemp -d /private/tmp/terraform-aws-rds-aurora-v10.2.0.XXXXXX)
+mkdir "$aurora_import_root/pristine" "$aurora_import_root/source" \
+  "$aurora_import_root/expected"
+git -C "$aurora_verified_clone" archive --format=tar HEAD | \
+  tar -xf - -C "$aurora_import_root/pristine"
+rsync -a "$aurora_import_root/pristine/" "$aurora_import_root/source/"
+test ! -e "$aurora_import_root/pristine/.git"
+test ! -e "$aurora_import_root/source/.git"
 ```
 
-Expected: clean neutral branch and exact verified checkout.
+Expected: the documentation amendment is the clean, synchronized branch tip and
+both working trees come from the one verified local committed snapshot, without
+a network operation or upstream Git metadata.
 
 - [ ] **Step 2: Prove the pristine snapshot fails interface and neutrality acceptance**
 
@@ -66,8 +81,10 @@ Expected: clean neutral branch and exact verified checkout.
 aurora_neutral_pattern="$(printf '%s|%s|%s|%s|%s|%s|%s' \
   'put''in' 'khuy''lo' 'ukr''ain' 'russ''ia' 'bela''rus' 'cri''mea' 'don''bas')"
 test -n "$(rg -l -i "$aurora_neutral_pattern" "$aurora_import_root/source" \
-  --hidden --glob '!.git/**')"
+  --hidden)"
 if rg -n '^  create = var\.create$' "$aurora_import_root/source/main.tf"; then exit 1; fi
+test "$(sed -n '403p' "$aurora_import_root/pristine/CHANGELOG.md" | \
+  rg -ci "$aurora_neutral_pattern")" = "1"
 ```
 
 Expected: upstream contains forbidden material and does not yet have the required direct creation expression.
@@ -83,22 +100,28 @@ create = var.create
 
 - Delete the complete five-line variable block at pristine `variables.tf:858-862`.
 - Delete the wrapper forwarding line at pristine `wrappers/main.tf:95`.
-- Delete the banner at pristine `README.md:5` and the final five-line nontechnical section at `README.md:438-442`.
-- Run terraform-docs so the deleted input row at pristine `README.md:366` disappears:
-
-```bash
-go run github.com/terraform-docs/terraform-docs@v0.20.0 markdown table \
-  --lockfile=false --output-file README.md --output-mode inject \
-  "$aurora_import_root/source"
-```
+- Delete the banner at pristine `README.md:5`, the deleted input row at
+  pristine `README.md:366`, and the final five-line nontechnical section at
+  `README.md:438-442`.
+- Delete only the user-authorized forbidden bullet at pristine
+  `CHANGELOG.md:403`.
 
 Prepend the required notice to `main.tf`, `variables.tf`, `wrappers/main.tf`,
-and `README.md`. Then assert:
+`README.md`, and `CHANGELOG.md`, using these exact first lines:
+
+```text
+# Modified by joeroberts/terraform-aws-rds-aurora on 2026-08-12; see UPSTREAM.md.
+<!-- Modified by joeroberts/terraform-aws-rds-aurora on 2026-08-12; see UPSTREAM.md. -->
+```
+
+The first form is for the three HCL files; the second is for both Markdown
+files. Do not run a generator or make any other change in this sanitized tree.
+Then assert:
 
 ```bash
 rg -n '^  create = var\.create$' "$aurora_import_root/source/main.tf"
 if rg -n -i "$aurora_neutral_pattern" "$aurora_import_root/source" \
-  --hidden --glob '!.git/**'; then exit 1; fi
+  --hidden; then exit 1; fi
 ```
 
 Expected: the direct creation expression exists exactly once and the temporary tree has zero disallowed matches.
@@ -106,9 +129,10 @@ Expected: the direct creation expression exists exactly once and the temporary t
 - [ ] **Step 4: Copy sanitized tree and add provenance**
 
 ```bash
-rsync -a --exclude .git "$aurora_import_root/source/" ./
+rsync -a --exclude='/.git' "$aurora_import_root/source/" ./
 test -f main.tf
 test -f variables.tf
+test -f CHANGELOG.md
 test -d modules
 test -d wrappers
 test -f docs/superpowers/plans/2026-08-12-rds-aurora-neutral-derivative.md
@@ -121,33 +145,87 @@ update rule: sanitize in temporary storage and never merge upstream history.
 End the update procedure by requiring docs, fmt, lint, all-root validation,
 parity, neutrality/history, actionlint, independent review, and a pre-tag PR.
 
-- [ ] **Step 5: Verify the four approved neutralization deltas**
+- [ ] **Step 5: Construct and byte-compare the five approved transforms**
 
 ```bash
+aurora_notice='Modified by joeroberts/terraform-aws-rds-aurora on 2026-08-12; see UPSTREAM.md.'
 diff -u \
-  <(git -C "$aurora_import_root/source" show HEAD:main.tf | perl -pe 's/create = var\.create && var\.[A-Za-z0-9_]+/create = var.create/') \
+  <(perl -pe 's/create = var\.create && var\.[A-Za-z0-9_]+/create = var.create/' "$aurora_import_root/pristine/main.tf") \
   <(sed '1d' main.tf)
 diff -u \
-  <(git -C "$aurora_import_root/source" show HEAD:variables.tf | sed '858,862d' | perl -0pe 's/\n+\z/\n/') \
+  <(sed '858,862d' "$aurora_import_root/pristine/variables.tf" | perl -0pe 's/\n+\z/\n/') \
   <(sed '1d' variables.tf | perl -0pe 's/\n+\z/\n/')
 diff -u \
-  <(git -C "$aurora_import_root/source" show HEAD:wrappers/main.tf | sed '95d') \
+  <(sed '95d' "$aurora_import_root/pristine/wrappers/main.tf") \
   <(sed '1d' wrappers/main.tf)
+{
+  printf '<!-- %s -->\n' "$aurora_notice"
+  sed '5d;366d;438,442d' "$aurora_import_root/pristine/README.md"
+} > "$aurora_import_root/expected/README.md"
+{
+  printf '<!-- %s -->\n' "$aurora_notice"
+  sed '403d' "$aurora_import_root/pristine/CHANGELOG.md"
+} > "$aurora_import_root/expected/CHANGELOG.md"
+cmp "$aurora_import_root/expected/README.md" "$aurora_import_root/source/README.md"
+cmp "$aurora_import_root/expected/README.md" README.md
+cmp "$aurora_import_root/expected/CHANGELOG.md" "$aurora_import_root/source/CHANGELOG.md"
+cmp "$aurora_import_root/expected/CHANGELOG.md" CHANGELOG.md
+aurora_readme_blank_at_eof_proven=0
+aurora_readme_whitespace=$(git diff --no-index --check -- \
+  "$aurora_import_root/pristine/README.md" \
+  "$aurora_import_root/expected/README.md" || :)
+if test -n "$aurora_readme_whitespace"; then
+  test "$(printf '%s\n' "$aurora_readme_whitespace" | \
+    rg -vc 'new blank line at EOF\.|^$')" = "0"
+  aurora_readme_blank_at_eof_proven=1
+fi
+aurora_changed_paths=()
+while IFS= read -r aurora_path; do
+  if ! cmp -s "$aurora_import_root/pristine/$aurora_path" "$aurora_path"; then
+    aurora_changed_paths+=("$aurora_path")
+  fi
+done < <(git -C "$aurora_verified_clone" ls-tree -r --name-only HEAD | sort)
+diff -u \
+  <(printf '%s\n' CHANGELOG.md README.md main.tf variables.tf wrappers/main.tf) \
+  <(printf '%s\n' "${aurora_changed_paths[@]}" | sort)
+diff -u \
+  <(git -C "$aurora_verified_clone" ls-tree -r --name-only HEAD | sort) \
+  <(find . -path './.git' -prune -o -type f -print | sed 's#^\./##' | \
+    rg -v '^(UPSTREAM\.md|docs/superpowers/plans/2026-08-12-rds-aurora-neutral-derivative\.md|docs/superpowers/status/2026-08-12-rds-aurora-neutral-derivative-blocker\.md|\.superpowers/sdd/2026-08-12-rds-aurora-neutral-derivative/(progress|plan-amendment-report)\.md)$' | \
+    sort)
 ```
 
-Expected: no output. The derivative comparison strips only the required first-line notices.
+Expected: no output. The imported target has exactly the pristine file set plus
+the root-anchored planning/provenance files, and its only pristine-file deltas
+are the five authorized paths. Both Markdown files are byte-identical to exact
+deletion-and-notice transforms. A README whitespace exception is merely
+recorded as proven when that exact transform produces only `blank-at-eof`.
 
 - [ ] **Step 6: Commit and push the clean import**
 
 ```bash
 terraform fmt -check -recursive
-git diff --check
-git add . ':!docs/superpowers'
+git add --all -- . \
+  ':(top,exclude)docs/superpowers/plans/2026-08-12-rds-aurora-neutral-derivative.md' \
+  ':(top,exclude)docs/superpowers/status/2026-08-12-rds-aurora-neutral-derivative-blocker.md' \
+  ':(top,exclude).superpowers/sdd/2026-08-12-rds-aurora-neutral-derivative/progress.md' \
+  ':(top,exclude).superpowers/sdd/2026-08-12-rds-aurora-neutral-derivative/plan-amendment-report.md'
+git diff --cached --check -- ':(top,exclude)README.md'
+if test "$aurora_readme_blank_at_eof_proven" = "1"; then
+  git -c core.whitespace=-blank-at-eof diff --cached --check -- README.md
+else
+  git diff --cached --check -- README.md
+fi
 git commit -m "feat: import neutral RDS Aurora module v10.2.0"
 git push -u origin neutral/v10.2.0-neutral.1
+test "$(git rev-parse HEAD)" = "$(git rev-parse origin/neutral/v10.2.0-neutral.1)"
 ```
 
-Expected: neutralization and import share one pushed commit, so no intermediate commit contains the removed interface/content.
+Expected: staging precedes whitespace checks, so imported files that were
+previously untracked are checked through the index. The default cached check
+applies to every non-root-README path; only a transform-proven root README may
+disable `blank-at-eof`. Neutralization and import share one non-force-pushed
+commit, so no intermediate commit contains the removed interface/content.
 
 ---
 
@@ -329,17 +407,18 @@ Expected: stable docs, passing fmt/lint, and 13 successful validations without A
 
 ```bash
 aurora_compare_root=$(mktemp -d /private/tmp/terraform-aws-rds-aurora-compare.XXXXXX)
-git clone --quiet --depth 1 --branch v10.2.0 \
-  https://github.com/terraform-aws-modules/terraform-aws-rds-aurora.git \
-  "$aurora_compare_root/upstream"
-test "$(git -C "$aurora_compare_root/upstream" rev-parse HEAD)" = \
+test -n "${aurora_verified_clone:?set aurora_verified_clone to the already-verified local upstream clone}"
+test "$(git -C "$aurora_verified_clone" rev-parse HEAD)" = \
   "2c3946c8191278ad974bbb077da5e03986e24f4d"
+mkdir "$aurora_compare_root/upstream"
+git -C "$aurora_verified_clone" archive --format=tar HEAD | \
+  tar -xf - -C "$aurora_compare_root/upstream"
 while IFS= read -r aurora_tf_file; do
   case "$aurora_tf_file" in
     main.tf|variables.tf|wrappers/main.tf|examples/s3-import/main.tf) continue ;;
   esac
   diff -u "$aurora_compare_root/upstream/$aurora_tf_file" "$aurora_tf_file"
-done < <(git -C "$aurora_compare_root/upstream" ls-files '*.tf' | sort)
+done < <(git -C "$aurora_verified_clone" ls-tree -r --name-only HEAD -- '*.tf' | sort)
 diff -u \
   <(perl -pe 's/create = var\.create && var\.[A-Za-z0-9_]+/create = var.create/' "$aurora_compare_root/upstream/main.tf") \
   <(sed '1d' main.tf)
@@ -354,24 +433,39 @@ diff -u \
   <(sed '1d' examples/s3-import/main.tf)
 rg -n '^  create = var\.create$' main.tf
 test "$(rg -c '^  create = var\.create$' main.tf)" = "1"
+{
+  printf '<!-- %s -->\n' \
+    'Modified by joeroberts/terraform-aws-rds-aurora on 2026-08-12; see UPSTREAM.md.'
+  sed '403d' "$aurora_compare_root/upstream/CHANGELOG.md"
+} > "$aurora_compare_root/expected-CHANGELOG.md"
+cmp "$aurora_compare_root/expected-CHANGELOG.md" CHANGELOG.md
 ```
 
 Expected: every unchanged Terraform file is byte-identical; the four approved
 files match their deterministic transforms; and the direct creation expression
-occurs exactly once.
+occurs exactly once. The changelog remains byte-identical to its one authorized
+bullet deletion plus exact first-line notice, and the pristine reference came
+from the same verified local commit without a network source.
 
 - [ ] **Step 3: Notices, actions, neutrality, history, and clean remote**
 
 ```bash
 aurora_notice='Modified by joeroberts/terraform-aws-rds-aurora on 2026-08-12; see UPSTREAM.md.'
-for aurora_notice_file in main.tf variables.tf wrappers/main.tf README.md \
+for aurora_notice_file in main.tf variables.tf wrappers/main.tf README.md CHANGELOG.md \
   wrappers/README.md wrappers/dsql/README.md examples/s3-import/main.tf .github/workflows/*; do
   head -n 1 "$aurora_notice_file" | rg -Fq "$aurora_notice"
 done
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 aurora_neutral_pattern="$(printf '%s|%s|%s|%s|%s|%s|%s' \
   'put''in' 'khuy''lo' 'ukr''ain' 'russ''ia' 'bela''rus' 'cri''mea' 'don''bas')"
-if rg -n -i "$aurora_neutral_pattern" . --hidden --glob '!.git/**' --glob '!.terraform/**'; then exit 1; fi
+aurora_scan_status=0
+while IFS= read -r -d '' aurora_scan_file; do
+  if rg -n -i "$aurora_neutral_pattern" -- "$aurora_scan_file"; then
+    aurora_scan_status=1
+  fi
+done < <(find . -path './.git' -prune -o -path './.terraform' -prune -o \
+  -type f -print0)
+test "$aurora_scan_status" = "0"
 if git grep -nEi "$aurora_neutral_pattern" $(git rev-list --all); then exit 1; fi
 git diff --check
 test -z "$(git status --porcelain)"

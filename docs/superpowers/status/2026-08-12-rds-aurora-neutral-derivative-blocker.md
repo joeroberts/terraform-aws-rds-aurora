@@ -1,7 +1,7 @@
-# Aurora neutral derivative execution blocker
+# Aurora neutral derivative execution blocker — resolved
 
 - Branch: `neutral/v10.2.0-neutral.1`.
 - Approved upstream: `https://github.com/terraform-aws-modules/terraform-aws-rds-aurora.git`, tag `v10.2.0`, SHA `2c3946c8191278ad974bbb077da5e03986e24f4d`.
-- The approved Task 1 edit set enumerates `main.tf`, `variables.tf`, `wrappers/main.tf`, and `README.md`, while strict parity and repository-wide neutrality checks require the entire imported snapshot to be clean. The upstream snapshot has one additional neutrality match at `CHANGELOG.md:403`, outside that edit set. This creates a direct conflict between the enumerated edits/strict parity and repository-wide neutrality.
-- No source change, PR, tag, or release was created.
-- Safe resolution requires explicit authorization to neutralize the changelog entry and update the parity/notice expectations accordingly. Per the user's instruction, execution moved to Security Groups.
+- Original blocker: the approved Task 1 edit set enumerated `main.tf`, `variables.tf`, `wrappers/main.tf`, and `README.md`, while strict parity and repository-wide neutrality checks required the entire imported snapshot to be clean. The upstream snapshot had one additional neutrality match at `CHANGELOG.md:403`, outside that edit set.
+- Resolution on 2026-08-12: the user explicitly authorized deletion of that identified changelog bullet and amendment of the edit, notice, parity, and import-verification expectations. The implementation plan now requires exact README/CHANGELOG transform proofs, a local pristine archive from the already-verified upstream commit, index-aware whitespace checks, and exact five-file imported-snapshot parity.
+- Amendment state: resolved before Task 1. No upstream source was imported and no PR, tag, or release was created as part of this amendment.
