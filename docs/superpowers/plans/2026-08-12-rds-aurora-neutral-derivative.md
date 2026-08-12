@@ -60,8 +60,8 @@ aurora_import_root="$aurora_retained_root/import-$(git rev-parse HEAD)"
 test "$(git branch --show-current)" = "neutral/v10.2.0-neutral.1"
 test "$(git remote get-url origin)" = "git@github.com:joeroberts/terraform-aws-rds-aurora.git"
 test -z "$(git status --porcelain)"
-test "$(git log -1 --format=%s)" = "docs: harden Aurora history revision gate"
-test "$(git rev-parse HEAD^)" = "888c911409b545745981b9677e7add252dc84ae3"
+test "$(git log -1 --format=%s)" = "docs: fail closed on Aurora revision reads"
+test "$(git rev-parse HEAD^)" = "8d772deed1dec8a85b333f8d01866543319ae1b5"
 aurora_publication_gate=$(mktemp -d /private/tmp/terraform-aws-rds-aurora-publication.XXXXXX)
 printf '%s\n' \
   'M docs/superpowers/plans/2026-08-12-rds-aurora-neutral-derivative.md' \
@@ -99,7 +99,7 @@ test ! -e "$aurora_import_root/pristine/.git"
 test ! -e "$aurora_import_root/source/.git"
 ```
 
-Expected: the exact round 2 documentation correction is the clean branch tip,
+Expected: the exact round 4 documentation correction is the clean branch tip,
 its two tracked document edits are the complete commit scope, the scratch
 workspace is untracked/ignored, and a normal (non-force) push is
 followed by local/remote equality and ancestry checks. These checks do not claim
@@ -659,13 +659,17 @@ aurora_revisions="$aurora_final_gate/revisions"
 git rev-list --all > "$aurora_revisions"
 test -f "$aurora_revisions"
 test -r "$aurora_revisions"
-test -s "$aurora_revisions"
+aurora_revision_line_count=$(wc -l < "$aurora_revisions" | tr -d '[:space:]')
+case "$aurora_revision_line_count" in
+  ''|*[!0-9]*) exit 1 ;;
+esac
+test "$aurora_revision_line_count" -gt "0"
 aurora_revision_args=()
-while IFS= read -r aurora_revision || test -n "$aurora_revision"; do
+while IFS= read -r aurora_revision; do
   test -n "$aurora_revision"
   aurora_revision_args[${#aurora_revision_args[@]}]="$aurora_revision"
 done < "$aurora_revisions"
-test "${#aurora_revision_args[@]}" -gt "0"
+test "${#aurora_revision_args[@]}" -eq "$aurora_revision_line_count"
 if git grep -nEi "$aurora_neutral_pattern" "${aurora_revision_args[@]}"; then
   exit 1
 else
