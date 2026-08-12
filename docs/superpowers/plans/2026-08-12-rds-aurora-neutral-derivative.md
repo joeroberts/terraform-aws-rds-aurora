@@ -60,8 +60,8 @@ aurora_import_root="$aurora_retained_root/import-$(git rev-parse HEAD)"
 test "$(git branch --show-current)" = "neutral/v10.2.0-neutral.1"
 test "$(git remote get-url origin)" = "git@github.com:joeroberts/terraform-aws-rds-aurora.git"
 test -z "$(git status --porcelain)"
-test "$(git log -1 --format=%s)" = "docs: fail closed on Aurora revision reads"
-test "$(git rev-parse HEAD^)" = "8d772deed1dec8a85b333f8d01866543319ae1b5"
+test "$(git log -1 --format=%s)" = "docs: make Aurora whitespace count portable"
+test "$(git rev-parse HEAD^)" = "79b77807cc9c6d7636df60592e867aca6e92c15a"
 aurora_publication_gate=$(mktemp -d /private/tmp/terraform-aws-rds-aurora-publication.XXXXXX)
 printf '%s\n' \
   'M docs/superpowers/plans/2026-08-12-rds-aurora-neutral-derivative.md' \
@@ -99,7 +99,7 @@ test ! -e "$aurora_import_root/pristine/.git"
 test ! -e "$aurora_import_root/source/.git"
 ```
 
-Expected: the exact round 4 documentation correction is the clean branch tip,
+Expected: the exact round 5 documentation correction is the clean branch tip,
 its two tracked document edits are the complete commit scope, the scratch
 workspace is untracked/ignored, and a normal (non-force) push is
 followed by local/remote equality and ancestry checks. These checks do not claim
@@ -251,8 +251,9 @@ aurora_readme_whitespace=$(git diff --no-index --check -- \
   "$aurora_import_root/pristine/README.md" \
   "$aurora_import_root/expected/README.md" || :)
 if test -n "$aurora_readme_whitespace"; then
-  test "$(printf '%s\n' "$aurora_readme_whitespace" | \
-    rg -vc 'new blank line at EOF\.|^$')" = "0"
+  aurora_unexpected_whitespace_count=$(printf '%s\n' "$aurora_readme_whitespace" | \
+    awk 'length($0) > 0 && $0 !~ /: new blank line at EOF\.$/ { count++ } END { print count + 0 }')
+  test "$aurora_unexpected_whitespace_count" = "0"
   aurora_readme_blank_at_eof_proven=1
 fi
 aurora_changed_paths=()
@@ -302,8 +303,9 @@ aurora_readme_whitespace=$(git diff --no-index --check -- \
   "$aurora_import_root/pristine/README.md" \
   "$aurora_import_root/expected/README.md" || :)
 if test -n "$aurora_readme_whitespace"; then
-  test "$(printf '%s\n' "$aurora_readme_whitespace" | \
-    rg -vc 'new blank line at EOF\.|^$')" = "0"
+  aurora_unexpected_whitespace_count=$(printf '%s\n' "$aurora_readme_whitespace" | \
+    awk 'length($0) > 0 && $0 !~ /: new blank line at EOF\.$/ { count++ } END { print count + 0 }')
+  test "$aurora_unexpected_whitespace_count" = "0"
   aurora_readme_blank_at_eof_proven=1
 fi
 git diff --cached --check -- ':(top,exclude)README.md'
