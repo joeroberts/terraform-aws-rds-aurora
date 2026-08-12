@@ -60,8 +60,8 @@ aurora_import_root="$aurora_retained_root/import-$(git rev-parse HEAD)"
 test "$(git branch --show-current)" = "neutral/v10.2.0-neutral.1"
 test "$(git remote get-url origin)" = "git@github.com:joeroberts/terraform-aws-rds-aurora.git"
 test -z "$(git status --porcelain)"
-test "$(git log -1 --format=%s)" = "docs: make Aurora plan gates fail closed"
-test "$(git rev-parse HEAD^)" = "a67397073990fefd944768deccb17bf2dd6b559f"
+test "$(git log -1 --format=%s)" = "docs: harden Aurora history revision gate"
+test "$(git rev-parse HEAD^)" = "888c911409b545745981b9677e7add252dc84ae3"
 aurora_publication_gate=$(mktemp -d /private/tmp/terraform-aws-rds-aurora-publication.XXXXXX)
 printf '%s\n' \
   'M docs/superpowers/plans/2026-08-12-rds-aurora-neutral-derivative.md' \
@@ -657,8 +657,16 @@ done < "$aurora_scan_worklist"
 test "$aurora_scan_status" = "0"
 aurora_revisions="$aurora_final_gate/revisions"
 git rev-list --all > "$aurora_revisions"
+test -f "$aurora_revisions"
+test -r "$aurora_revisions"
 test -s "$aurora_revisions"
-if git grep -nEi "$aurora_neutral_pattern" $(cat "$aurora_revisions"); then
+aurora_revision_args=()
+while IFS= read -r aurora_revision || test -n "$aurora_revision"; do
+  test -n "$aurora_revision"
+  aurora_revision_args[${#aurora_revision_args[@]}]="$aurora_revision"
+done < "$aurora_revisions"
+test "${#aurora_revision_args[@]}" -gt "0"
+if git grep -nEi "$aurora_neutral_pattern" "${aurora_revision_args[@]}"; then
   exit 1
 else
   aurora_git_grep_status=$?
