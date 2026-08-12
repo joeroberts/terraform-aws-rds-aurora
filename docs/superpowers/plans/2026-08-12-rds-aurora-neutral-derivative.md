@@ -20,7 +20,9 @@
 - Upstream v10.2.0 contains no `*.tftest.hcl`; the direct-expression assertion, full HCL parity, and 13-root init/validate provide the focused behavioral proof.
 - Sanitize before copying; never import upstream Git history or create a GitHub-native fork.
 - Before Task 1 imports source, commit and push this authorization amendment without force, require a clean worktree, and require local `HEAD` to equal `origin/neutral/v10.2.0-neutral.1`.
-- Build every pristine comparison tree with `git archive` from the committed `HEAD` of the already-verified local upstream clone; do not clone, fetch, or introduce a second upstream source.
+- Create and verify exactly one deterministically located retained upstream clone in Task 1. Build every pristine comparison tree with `git archive` from its committed `HEAD`; Task 4 must not clone, fetch, or introduce a second upstream source.
+- Every executable gate is self-contained and fail-closed: it enables `set -euo pipefail` and defines all paths it consumes in that fence rather than relying on a prior shell.
+- Keep the root `.superpowers/` execution workspace ignored and untracked. Root-anchored filters may exclude it, but must retain identically named nested paths.
 - Push each milestone without force. On a blocker, persist and push `docs/neutralization/BLOCKER.md`, open a coherent draft PR, update the IAM campaign journal, and continue to Security Groups.
 
 ## File Map
@@ -49,19 +51,44 @@
 - [ ] **Step 1: Verify the pushed amendment and archive the verified upstream commit**
 
 ```bash
+set -euo pipefail
+aurora_branch='neutral/v10.2.0-neutral.1'
+aurora_expected_sha='2c3946c8191278ad974bbb077da5e03986e24f4d'
+aurora_retained_root="/private/tmp/terraform-aws-rds-aurora-v10.2.0-${aurora_expected_sha}"
+aurora_verified_clone="$aurora_retained_root/verified-upstream"
+aurora_import_root="$aurora_retained_root/import-$(git rev-parse HEAD)"
 test "$(git branch --show-current)" = "neutral/v10.2.0-neutral.1"
 test "$(git remote get-url origin)" = "git@github.com:joeroberts/terraform-aws-rds-aurora.git"
 test -z "$(git status --porcelain)"
-git fetch origin neutral/v10.2.0-neutral.1
-test "$(git rev-parse HEAD)" = "$(git rev-parse origin/neutral/v10.2.0-neutral.1)"
-test "$(git log -1 --format=%s)" = "docs: amend Aurora neutral import safeguards"
-test -n "${aurora_verified_clone:?set aurora_verified_clone to the already-verified local upstream clone}"
+test "$(git log -1 --format=%s)" = "docs: correct Aurora plan amendment safeguards"
+test "$(git rev-parse HEAD^)" = "08eb0741fbd346641da97820adb7b6077ac22356"
+diff -u \
+  <(printf '%s\n' \
+    'D .superpowers/sdd/2026-08-12-rds-aurora-neutral-derivative/plan-amendment-report.md' \
+    'D .superpowers/sdd/2026-08-12-rds-aurora-neutral-derivative/progress.md' \
+    'M docs/superpowers/plans/2026-08-12-rds-aurora-neutral-derivative.md' \
+    'M docs/superpowers/status/2026-08-12-rds-aurora-neutral-derivative-blocker.md') \
+  <(git diff-tree --no-commit-id --name-status -r HEAD | \
+    sed $'s/\t/ /' | sort)
+test -z "$(git ls-files .superpowers)"
+git check-ignore -q .superpowers/sdd/2026-08-12-rds-aurora-neutral-derivative/progress.md
+git push origin "HEAD:refs/heads/$aurora_branch"
+git fetch origin "$aurora_branch"
+test "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$aurora_branch")"
+git merge-base --is-ancestor HEAD "origin/$aurora_branch"
+git merge-base --is-ancestor "origin/$aurora_branch" HEAD
+if test ! -d "$aurora_verified_clone/.git"; then
+  mkdir -p "$aurora_retained_root"
+  git clone --quiet --depth 1 --branch v10.2.0 \
+    https://github.com/terraform-aws-modules/terraform-aws-rds-aurora.git \
+    "$aurora_verified_clone"
+fi
 test "$(git -C "$aurora_verified_clone" rev-parse HEAD)" = \
-  "2c3946c8191278ad974bbb077da5e03986e24f4d"
+  "$aurora_expected_sha"
 test "$(git -C "$aurora_verified_clone" rev-parse refs/tags/v10.2.0^{commit})" = \
-  "2c3946c8191278ad974bbb077da5e03986e24f4d"
+  "$aurora_expected_sha"
 test -z "$(git -C "$aurora_verified_clone" status --porcelain)"
-aurora_import_root=$(mktemp -d /private/tmp/terraform-aws-rds-aurora-v10.2.0.XXXXXX)
+test ! -e "$aurora_import_root"
 mkdir "$aurora_import_root/pristine" "$aurora_import_root/source" \
   "$aurora_import_root/expected"
 git -C "$aurora_verified_clone" archive --format=tar HEAD | \
@@ -71,13 +98,21 @@ test ! -e "$aurora_import_root/pristine/.git"
 test ! -e "$aurora_import_root/source/.git"
 ```
 
-Expected: the documentation amendment is the clean, synchronized branch tip and
-both working trees come from the one verified local committed snapshot, without
-a network operation or upstream Git metadata.
+Expected: the exact documentation correction is the clean branch tip, its two
+scratch deletions and two tracked document edits are the complete commit scope,
+the scratch workspace is untracked/ignored, and a normal (non-force) push is
+followed by local/remote equality and ancestry checks. These checks do not claim
+to prove historical push behavior. Task 1 creates or reuses exactly one retained
+upstream clone, verifies its committed tag/SHA, and archives that local commit
+without importing Git metadata.
 
 - [ ] **Step 2: Prove the pristine snapshot fails interface and neutrality acceptance**
 
 ```bash
+set -euo pipefail
+aurora_expected_sha='2c3946c8191278ad974bbb077da5e03986e24f4d'
+aurora_retained_root="/private/tmp/terraform-aws-rds-aurora-v10.2.0-${aurora_expected_sha}"
+aurora_import_root="$aurora_retained_root/import-$(git rev-parse HEAD)"
 aurora_neutral_pattern="$(printf '%s|%s|%s|%s|%s|%s|%s' \
   'put''in' 'khuy''lo' 'ukr''ain' 'russ''ia' 'bela''rus' 'cri''mea' 'don''bas')"
 test -n "$(rg -l -i "$aurora_neutral_pattern" "$aurora_import_root/source" \
@@ -119,6 +154,12 @@ files. Do not run a generator or make any other change in this sanitized tree.
 Then assert:
 
 ```bash
+set -euo pipefail
+aurora_expected_sha='2c3946c8191278ad974bbb077da5e03986e24f4d'
+aurora_retained_root="/private/tmp/terraform-aws-rds-aurora-v10.2.0-${aurora_expected_sha}"
+aurora_import_root="$aurora_retained_root/import-$(git rev-parse HEAD)"
+aurora_neutral_pattern="$(printf '%s|%s|%s|%s|%s|%s|%s' \
+  'put''in' 'khuy''lo' 'ukr''ain' 'russ''ia' 'bela''rus' 'cri''mea' 'don''bas')"
 rg -n '^  create = var\.create$' "$aurora_import_root/source/main.tf"
 if rg -n -i "$aurora_neutral_pattern" "$aurora_import_root/source" \
   --hidden; then exit 1; fi
@@ -129,6 +170,10 @@ Expected: the direct creation expression exists exactly once and the temporary t
 - [ ] **Step 4: Copy sanitized tree and add provenance**
 
 ```bash
+set -euo pipefail
+aurora_expected_sha='2c3946c8191278ad974bbb077da5e03986e24f4d'
+aurora_retained_root="/private/tmp/terraform-aws-rds-aurora-v10.2.0-${aurora_expected_sha}"
+aurora_import_root="$aurora_retained_root/import-$(git rev-parse HEAD)"
 rsync -a --exclude='/.git' "$aurora_import_root/source/" ./
 test -f main.tf
 test -f variables.tf
@@ -148,7 +193,18 @@ parity, neutrality/history, actionlint, independent review, and a pre-tag PR.
 - [ ] **Step 5: Construct and byte-compare the five approved transforms**
 
 ```bash
+set -euo pipefail
+aurora_expected_sha='2c3946c8191278ad974bbb077da5e03986e24f4d'
+aurora_retained_root="/private/tmp/terraform-aws-rds-aurora-v10.2.0-${aurora_expected_sha}"
+aurora_verified_clone="$aurora_retained_root/verified-upstream"
+aurora_import_root="$aurora_retained_root/import-$(git rev-parse HEAD)"
 aurora_notice='Modified by joeroberts/terraform-aws-rds-aurora on 2026-08-12; see UPSTREAM.md.'
+aurora_hcl_notice="# $aurora_notice"
+for aurora_hcl_file in main.tf variables.tf wrappers/main.tf; do
+  test "$(head -n 1 "$aurora_import_root/source/$aurora_hcl_file")" = \
+    "$aurora_hcl_notice"
+  test "$(head -n 1 "$aurora_hcl_file")" = "$aurora_hcl_notice"
+done
 diff -u \
   <(perl -pe 's/create = var\.create && var\.[A-Za-z0-9_]+/create = var.create/' "$aurora_import_root/pristine/main.tf") \
   <(sed '1d' main.tf)
@@ -190,8 +246,9 @@ diff -u \
   <(printf '%s\n' "${aurora_changed_paths[@]}" | sort)
 diff -u \
   <(git -C "$aurora_verified_clone" ls-tree -r --name-only HEAD | sort) \
-  <(find . -path './.git' -prune -o -type f -print | sed 's#^\./##' | \
-    rg -v '^(UPSTREAM\.md|docs/superpowers/plans/2026-08-12-rds-aurora-neutral-derivative\.md|docs/superpowers/status/2026-08-12-rds-aurora-neutral-derivative-blocker\.md|\.superpowers/sdd/2026-08-12-rds-aurora-neutral-derivative/(progress|plan-amendment-report)\.md)$' | \
+  <(find . -path './.git' -prune -o -path './.superpowers' -prune -o \
+    -type f -print | sed 's#^\./##' | \
+    rg -v '^(UPSTREAM\.md|docs/superpowers/plans/2026-08-12-rds-aurora-neutral-derivative\.md|docs/superpowers/status/2026-08-12-rds-aurora-neutral-derivative-blocker\.md)$' | \
     sort)
 ```
 
@@ -204,12 +261,24 @@ recorded as proven when that exact transform produces only `blank-at-eof`.
 - [ ] **Step 6: Commit and push the clean import**
 
 ```bash
+set -euo pipefail
+aurora_expected_sha='2c3946c8191278ad974bbb077da5e03986e24f4d'
+aurora_retained_root="/private/tmp/terraform-aws-rds-aurora-v10.2.0-${aurora_expected_sha}"
+aurora_import_root="$aurora_retained_root/import-$(git rev-parse HEAD)"
 terraform fmt -check -recursive
 git add --all -- . \
   ':(top,exclude)docs/superpowers/plans/2026-08-12-rds-aurora-neutral-derivative.md' \
   ':(top,exclude)docs/superpowers/status/2026-08-12-rds-aurora-neutral-derivative-blocker.md' \
-  ':(top,exclude).superpowers/sdd/2026-08-12-rds-aurora-neutral-derivative/progress.md' \
-  ':(top,exclude).superpowers/sdd/2026-08-12-rds-aurora-neutral-derivative/plan-amendment-report.md'
+  ':(top,exclude).superpowers/**'
+aurora_readme_blank_at_eof_proven=0
+aurora_readme_whitespace=$(git diff --no-index --check -- \
+  "$aurora_import_root/pristine/README.md" \
+  "$aurora_import_root/expected/README.md" || :)
+if test -n "$aurora_readme_whitespace"; then
+  test "$(printf '%s\n' "$aurora_readme_whitespace" | \
+    rg -vc 'new blank line at EOF\.|^$')" = "0"
+  aurora_readme_blank_at_eof_proven=1
+fi
 git diff --cached --check -- ':(top,exclude)README.md'
 if test "$aurora_readme_blank_at_eof_proven" = "1"; then
   git -c core.whitespace=-blank-at-eof diff --cached --check -- README.md
@@ -243,6 +312,7 @@ commit, so no intermediate commit contains the removed interface/content.
 - [ ] **Step 1: Run source acceptance checks before editing**
 
 ```bash
+set -euo pipefail
 test -n "$(rg -l 'terraform-aws-modules/rds-aurora/aws|tfr:///terraform-aws-modules/rds-aurora/aws' \
   README.md wrappers -g README.md)"
 test -n "$(rg -l 'terraform-aws-modules/s3-bucket/aws' examples/s3-import -g '*.tf')"
@@ -283,6 +353,7 @@ notice. Do not change any other external example dependency.
 - [ ] **Step 4: Regenerate docs and prove source acceptance**
 
 ```bash
+set -euo pipefail
 while IFS= read -r aurora_docs_dir; do
   go run github.com/terraform-docs/terraform-docs@v0.20.0 markdown table \
     --lockfile=false --output-file README.md --output-mode inject "$aurora_docs_dir"
@@ -298,6 +369,7 @@ Expected: Aurora self-sources and the S3 fixture dependency are neutral and gene
 - [ ] **Step 5: Commit and push documentation/dependency milestone**
 
 ```bash
+set -euo pipefail
 git add README.md wrappers/README.md wrappers/dsql/README.md examples/s3-import/main.tf
 git commit -m "docs: point Aurora consumers to neutral sources"
 git push
@@ -317,6 +389,7 @@ git push
 - [ ] **Step 1: Confirm unpinned refs exist, then apply exact pins**
 
 ```bash
+set -euo pipefail
 test -n "$(rg -n -P 'uses:\s+[^\s#]+@(?![0-9a-f]{40}(?:\s|$))' .github/workflows)"
 ```
 
@@ -350,6 +423,7 @@ Retain the release job's `terraform-aws-modules` owner guard so it stays inert.
 - [ ] **Step 3: Validate, commit, and push workflows**
 
 ```bash
+set -euo pipefail
 if rg -n -P 'uses:\s+[^\s#]+@(?![0-9a-f]{40}(?:\s|$))' .github/workflows; then exit 1; fi
 test "$(rg -l '^permissions:' .github/workflows | wc -l | tr -d ' ')" = "5"
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
@@ -374,6 +448,7 @@ git push
 - [ ] **Step 1: Docs, format, lint, and 13-root validation**
 
 ```bash
+set -euo pipefail
 while IFS= read -r aurora_docs_dir; do
   go run github.com/terraform-docs/terraform-docs@v0.20.0 markdown table \
     --lockfile=false --output-file README.md --output-mode inject "$aurora_docs_dir"
@@ -406,10 +481,16 @@ Expected: stable docs, passing fmt/lint, and 13 successful validations without A
 - [ ] **Step 2: Structural, interface, and full HCL parity assertions**
 
 ```bash
+set -euo pipefail
+aurora_expected_sha='2c3946c8191278ad974bbb077da5e03986e24f4d'
+aurora_retained_root="/private/tmp/terraform-aws-rds-aurora-v10.2.0-${aurora_expected_sha}"
+aurora_verified_clone="$aurora_retained_root/verified-upstream"
 aurora_compare_root=$(mktemp -d /private/tmp/terraform-aws-rds-aurora-compare.XXXXXX)
-test -n "${aurora_verified_clone:?set aurora_verified_clone to the already-verified local upstream clone}"
 test "$(git -C "$aurora_verified_clone" rev-parse HEAD)" = \
-  "2c3946c8191278ad974bbb077da5e03986e24f4d"
+  "$aurora_expected_sha"
+test "$(git -C "$aurora_verified_clone" rev-parse refs/tags/v10.2.0^{commit})" = \
+  "$aurora_expected_sha"
+test -z "$(git -C "$aurora_verified_clone" status --porcelain)"
 mkdir "$aurora_compare_root/upstream"
 git -C "$aurora_verified_clone" archive --format=tar HEAD | \
   tar -xf - -C "$aurora_compare_root/upstream"
@@ -419,6 +500,11 @@ while IFS= read -r aurora_tf_file; do
   esac
   diff -u "$aurora_compare_root/upstream/$aurora_tf_file" "$aurora_tf_file"
 done < <(git -C "$aurora_verified_clone" ls-tree -r --name-only HEAD -- '*.tf' | sort)
+aurora_hcl_notice='# Modified by joeroberts/terraform-aws-rds-aurora on 2026-08-12; see UPSTREAM.md.'
+for aurora_hcl_file in main.tf variables.tf wrappers/main.tf \
+  examples/s3-import/main.tf; do
+  test "$(head -n 1 "$aurora_hcl_file")" = "$aurora_hcl_notice"
+done
 diff -u \
   <(perl -pe 's/create = var\.create && var\.[A-Za-z0-9_]+/create = var.create/' "$aurora_compare_root/upstream/main.tf") \
   <(sed '1d' main.tf)
@@ -450,10 +536,16 @@ from the same verified local commit without a network source.
 - [ ] **Step 3: Notices, actions, neutrality, history, and clean remote**
 
 ```bash
+set -euo pipefail
 aurora_notice='Modified by joeroberts/terraform-aws-rds-aurora on 2026-08-12; see UPSTREAM.md.'
 for aurora_notice_file in main.tf variables.tf wrappers/main.tf README.md CHANGELOG.md \
   wrappers/README.md wrappers/dsql/README.md examples/s3-import/main.tf .github/workflows/*; do
-  head -n 1 "$aurora_notice_file" | rg -Fq "$aurora_notice"
+  case "$aurora_notice_file" in
+    *.tf|.github/workflows/*) aurora_expected_notice="# $aurora_notice" ;;
+    *.md) aurora_expected_notice="<!-- $aurora_notice -->" ;;
+    *) exit 1 ;;
+  esac
+  test "$(head -n 1 "$aurora_notice_file")" = "$aurora_expected_notice"
 done
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 aurora_neutral_pattern="$(printf '%s|%s|%s|%s|%s|%s|%s' \
@@ -464,7 +556,7 @@ while IFS= read -r -d '' aurora_scan_file; do
     aurora_scan_status=1
   fi
 done < <(find . -path './.git' -prune -o -path './.terraform' -prune -o \
-  -type f -print0)
+  -path './.superpowers' -prune -o -type f -print0)
 test "$aurora_scan_status" = "0"
 if git grep -nEi "$aurora_neutral_pattern" $(git rev-list --all); then exit 1; fi
 git diff --check
@@ -504,6 +596,7 @@ intentional deltas, neutral S3 fixture source, legal notices, CI hardening,
 verification evidence, review result, and deferred tag. Then run:
 
 ```bash
+set -euo pipefail
 gh pr create --repo joeroberts/terraform-aws-rds-aurora \
   --base main --head neutral/v10.2.0-neutral.1 \
   --title "feat: add neutral RDS Aurora module v10.2.0" \
