@@ -60,16 +60,17 @@ aurora_import_root="$aurora_retained_root/import-$(git rev-parse HEAD)"
 test "$(git branch --show-current)" = "neutral/v10.2.0-neutral.1"
 test "$(git remote get-url origin)" = "git@github.com:joeroberts/terraform-aws-rds-aurora.git"
 test -z "$(git status --porcelain)"
-test "$(git log -1 --format=%s)" = "docs: correct Aurora plan amendment safeguards"
-test "$(git rev-parse HEAD^)" = "08eb0741fbd346641da97820adb7b6077ac22356"
-diff -u \
-  <(printf '%s\n' \
-    'D .superpowers/sdd/2026-08-12-rds-aurora-neutral-derivative/plan-amendment-report.md' \
-    'D .superpowers/sdd/2026-08-12-rds-aurora-neutral-derivative/progress.md' \
-    'M docs/superpowers/plans/2026-08-12-rds-aurora-neutral-derivative.md' \
-    'M docs/superpowers/status/2026-08-12-rds-aurora-neutral-derivative-blocker.md') \
-  <(git diff-tree --no-commit-id --name-status -r HEAD | \
-    sed $'s/\t/ /' | sort)
+test "$(git log -1 --format=%s)" = "docs: make Aurora plan gates fail closed"
+test "$(git rev-parse HEAD^)" = "a67397073990fefd944768deccb17bf2dd6b559f"
+aurora_publication_gate=$(mktemp -d /private/tmp/terraform-aws-rds-aurora-publication.XXXXXX)
+printf '%s\n' \
+  'M docs/superpowers/plans/2026-08-12-rds-aurora-neutral-derivative.md' \
+  'M docs/superpowers/status/2026-08-12-rds-aurora-neutral-derivative-blocker.md' \
+  > "$aurora_publication_gate/expected-scope"
+git diff-tree --no-commit-id --name-status -r HEAD | sed $'s/\t/ /' | sort \
+  > "$aurora_publication_gate/actual-scope"
+diff -u "$aurora_publication_gate/expected-scope" \
+  "$aurora_publication_gate/actual-scope"
 test -z "$(git ls-files .superpowers)"
 git check-ignore -q .superpowers/sdd/2026-08-12-rds-aurora-neutral-derivative/progress.md
 git push origin "HEAD:refs/heads/$aurora_branch"
@@ -89,7 +90,7 @@ test "$(git -C "$aurora_verified_clone" rev-parse refs/tags/v10.2.0^{commit})" =
   "$aurora_expected_sha"
 test -z "$(git -C "$aurora_verified_clone" status --porcelain)"
 test ! -e "$aurora_import_root"
-mkdir "$aurora_import_root/pristine" "$aurora_import_root/source" \
+mkdir -p "$aurora_import_root/pristine" "$aurora_import_root/source" \
   "$aurora_import_root/expected"
 git -C "$aurora_verified_clone" archive --format=tar HEAD | \
   tar -xf - -C "$aurora_import_root/pristine"
@@ -98,9 +99,9 @@ test ! -e "$aurora_import_root/pristine/.git"
 test ! -e "$aurora_import_root/source/.git"
 ```
 
-Expected: the exact documentation correction is the clean branch tip, its two
-scratch deletions and two tracked document edits are the complete commit scope,
-the scratch workspace is untracked/ignored, and a normal (non-force) push is
+Expected: the exact round 2 documentation correction is the clean branch tip,
+its two tracked document edits are the complete commit scope, the scratch
+workspace is untracked/ignored, and a normal (non-force) push is
 followed by local/remote equality and ancestry checks. These checks do not claim
 to prove historical push behavior. Task 1 creates or reuses exactly one retained
 upstream clone, verifies its committed tag/SHA, and archives that local commit
@@ -115,9 +116,16 @@ aurora_retained_root="/private/tmp/terraform-aws-rds-aurora-v10.2.0-${aurora_exp
 aurora_import_root="$aurora_retained_root/import-$(git rev-parse HEAD)"
 aurora_neutral_pattern="$(printf '%s|%s|%s|%s|%s|%s|%s' \
   'put''in' 'khuy''lo' 'ukr''ain' 'russ''ia' 'bela''rus' 'cri''mea' 'don''bas')"
-test -n "$(rg -l -i "$aurora_neutral_pattern" "$aurora_import_root/source" \
-  --hidden)"
-if rg -n '^  create = var\.create$' "$aurora_import_root/source/main.tf"; then exit 1; fi
+aurora_pristine_matches="$aurora_import_root/expected/pristine-neutral-matches"
+rg -l -i "$aurora_neutral_pattern" "$aurora_import_root/source" --hidden \
+  > "$aurora_pristine_matches"
+test -s "$aurora_pristine_matches"
+if rg -n '^  create = var\.create$' "$aurora_import_root/source/main.tf"; then
+  exit 1
+else
+  aurora_rg_status=$?
+  test "$aurora_rg_status" = "1"
+fi
 test "$(sed -n '403p' "$aurora_import_root/pristine/CHANGELOG.md" | \
   rg -ci "$aurora_neutral_pattern")" = "1"
 ```
@@ -162,7 +170,12 @@ aurora_neutral_pattern="$(printf '%s|%s|%s|%s|%s|%s|%s' \
   'put''in' 'khuy''lo' 'ukr''ain' 'russ''ia' 'bela''rus' 'cri''mea' 'don''bas')"
 rg -n '^  create = var\.create$' "$aurora_import_root/source/main.tf"
 if rg -n -i "$aurora_neutral_pattern" "$aurora_import_root/source" \
-  --hidden; then exit 1; fi
+  --hidden; then
+  exit 1
+else
+  aurora_rg_status=$?
+  test "$aurora_rg_status" = "1"
+fi
 ```
 
 Expected: the direct creation expression exists exactly once and the temporary tree has zero disallowed matches.
@@ -205,15 +218,22 @@ for aurora_hcl_file in main.tf variables.tf wrappers/main.tf; do
     "$aurora_hcl_notice"
   test "$(head -n 1 "$aurora_hcl_file")" = "$aurora_hcl_notice"
 done
-diff -u \
-  <(perl -pe 's/create = var\.create && var\.[A-Za-z0-9_]+/create = var.create/' "$aurora_import_root/pristine/main.tf") \
-  <(sed '1d' main.tf)
-diff -u \
-  <(sed '858,862d' "$aurora_import_root/pristine/variables.tf" | perl -0pe 's/\n+\z/\n/') \
-  <(sed '1d' variables.tf | perl -0pe 's/\n+\z/\n/')
-diff -u \
-  <(sed '95d' "$aurora_import_root/pristine/wrappers/main.tf") \
-  <(sed '1d' wrappers/main.tf)
+perl -pe 's/create = var\.create && var\.[A-Za-z0-9_]+/create = var.create/' \
+  "$aurora_import_root/pristine/main.tf" > "$aurora_import_root/expected/main.tf"
+sed '1d' main.tf > "$aurora_import_root/expected/actual-main.tf"
+diff -u "$aurora_import_root/expected/main.tf" \
+  "$aurora_import_root/expected/actual-main.tf"
+sed '858,862d' "$aurora_import_root/pristine/variables.tf" | \
+  perl -0pe 's/\n+\z/\n/' > "$aurora_import_root/expected/variables.tf"
+sed '1d' variables.tf | perl -0pe 's/\n+\z/\n/' \
+  > "$aurora_import_root/expected/actual-variables.tf"
+diff -u "$aurora_import_root/expected/variables.tf" \
+  "$aurora_import_root/expected/actual-variables.tf"
+sed '95d' "$aurora_import_root/pristine/wrappers/main.tf" \
+  > "$aurora_import_root/expected/wrappers-main.tf"
+sed '1d' wrappers/main.tf > "$aurora_import_root/expected/actual-wrappers-main.tf"
+diff -u "$aurora_import_root/expected/wrappers-main.tf" \
+  "$aurora_import_root/expected/actual-wrappers-main.tf"
 {
   printf '<!-- %s -->\n' "$aurora_notice"
   sed '5d;366d;438,442d' "$aurora_import_root/pristine/README.md"
@@ -236,20 +256,27 @@ if test -n "$aurora_readme_whitespace"; then
   aurora_readme_blank_at_eof_proven=1
 fi
 aurora_changed_paths=()
+aurora_pristine_worklist="$aurora_import_root/expected/pristine-worklist"
+git -C "$aurora_verified_clone" ls-tree -r --name-only HEAD | sort \
+  > "$aurora_pristine_worklist"
+test -s "$aurora_pristine_worklist"
 while IFS= read -r aurora_path; do
   if ! cmp -s "$aurora_import_root/pristine/$aurora_path" "$aurora_path"; then
     aurora_changed_paths+=("$aurora_path")
   fi
-done < <(git -C "$aurora_verified_clone" ls-tree -r --name-only HEAD | sort)
-diff -u \
-  <(printf '%s\n' CHANGELOG.md README.md main.tf variables.tf wrappers/main.tf) \
-  <(printf '%s\n' "${aurora_changed_paths[@]}" | sort)
-diff -u \
-  <(git -C "$aurora_verified_clone" ls-tree -r --name-only HEAD | sort) \
-  <(find . -path './.git' -prune -o -path './.superpowers' -prune -o \
-    -type f -print | sed 's#^\./##' | \
-    rg -v '^(UPSTREAM\.md|docs/superpowers/plans/2026-08-12-rds-aurora-neutral-derivative\.md|docs/superpowers/status/2026-08-12-rds-aurora-neutral-derivative-blocker\.md)$' | \
-    sort)
+done < "$aurora_pristine_worklist"
+printf '%s\n' CHANGELOG.md README.md main.tf variables.tf wrappers/main.tf \
+  > "$aurora_import_root/expected/authorized-paths"
+printf '%s\n' "${aurora_changed_paths[@]}" | sort \
+  > "$aurora_import_root/expected/actual-changed-paths"
+diff -u "$aurora_import_root/expected/authorized-paths" \
+  "$aurora_import_root/expected/actual-changed-paths"
+find . -path './.git' -prune -o -path './.superpowers' -prune -o \
+  -type f -print | sed 's#^\./##' | \
+  rg -v '^(UPSTREAM\.md|docs/superpowers/plans/2026-08-12-rds-aurora-neutral-derivative\.md|docs/superpowers/status/2026-08-12-rds-aurora-neutral-derivative-blocker\.md)$' | \
+  sort > "$aurora_import_root/expected/imported-file-set"
+diff -u "$aurora_pristine_worklist" \
+  "$aurora_import_root/expected/imported-file-set"
 ```
 
 Expected: no output. The imported target has exactly the pristine file set plus
@@ -313,9 +340,13 @@ commit, so no intermediate commit contains the removed interface/content.
 
 ```bash
 set -euo pipefail
-test -n "$(rg -l 'terraform-aws-modules/rds-aurora/aws|tfr:///terraform-aws-modules/rds-aurora/aws' \
-  README.md wrappers -g README.md)"
-test -n "$(rg -l 'terraform-aws-modules/s3-bucket/aws' examples/s3-import -g '*.tf')"
+aurora_acceptance_root=$(mktemp -d /private/tmp/terraform-aws-rds-aurora-acceptance.XXXXXX)
+rg -l 'terraform-aws-modules/rds-aurora/aws|tfr:///terraform-aws-modules/rds-aurora/aws' \
+  README.md wrappers -g README.md > "$aurora_acceptance_root/aurora-sources"
+test -s "$aurora_acceptance_root/aurora-sources"
+rg -l 'terraform-aws-modules/s3-bucket/aws' examples/s3-import -g '*.tf' \
+  > "$aurora_acceptance_root/s3-sources"
+test -s "$aurora_acceptance_root/s3-sources"
 ```
 
 Expected: both assertions pass against upstream-facing sources.
@@ -354,13 +385,32 @@ notice. Do not change any other external example dependency.
 
 ```bash
 set -euo pipefail
+aurora_docs_root=$(mktemp -d /private/tmp/terraform-aws-rds-aurora-docs.XXXXXX)
+aurora_docs_files="$aurora_docs_root/files"
+aurora_docs_worklist="$aurora_docs_root/directories"
+rg -l '<!-- BEGIN_TF_DOCS -->' -g README.md > "$aurora_docs_files"
+test -s "$aurora_docs_files"
+while IFS= read -r aurora_docs_file; do
+  dirname "$aurora_docs_file"
+done < "$aurora_docs_files" | sort -u > "$aurora_docs_worklist"
+test -s "$aurora_docs_worklist"
 while IFS= read -r aurora_docs_dir; do
   go run github.com/terraform-docs/terraform-docs@v0.20.0 markdown table \
     --lockfile=false --output-file README.md --output-mode inject "$aurora_docs_dir"
-done < <(rg -l '<!-- BEGIN_TF_DOCS -->' -g README.md | xargs -n1 dirname | sort -u)
+done < "$aurora_docs_worklist"
 if rg -n 'source\s*=\s*"(terraform-aws-modules/rds-aurora/aws|tfr:///terraform-aws-modules/rds-aurora/aws)' \
-  README.md wrappers -g README.md; then exit 1; fi
-if rg -n 'terraform-aws-modules/s3-bucket/aws' examples/s3-import -g '*.tf'; then exit 1; fi
+  README.md wrappers -g README.md; then
+  exit 1
+else
+  aurora_rg_status=$?
+  test "$aurora_rg_status" = "1"
+fi
+if rg -n 'terraform-aws-modules/s3-bucket/aws' examples/s3-import -g '*.tf'; then
+  exit 1
+else
+  aurora_rg_status=$?
+  test "$aurora_rg_status" = "1"
+fi
 git diff --check
 ```
 
@@ -390,7 +440,10 @@ git push
 
 ```bash
 set -euo pipefail
-test -n "$(rg -n -P 'uses:\s+[^\s#]+@(?![0-9a-f]{40}(?:\s|$))' .github/workflows)"
+aurora_workflow_gate=$(mktemp -d /private/tmp/terraform-aws-rds-aurora-workflows.XXXXXX)
+rg -n -P 'uses:\s+[^\s#]+@(?![0-9a-f]{40}(?:\s|$))' .github/workflows \
+  > "$aurora_workflow_gate/unpinned"
+test -s "$aurora_workflow_gate/unpinned"
 ```
 
 Apply this mapping with `apply_patch`, retaining the inherited ref in a comment:
@@ -424,8 +477,15 @@ Retain the release job's `terraform-aws-modules` owner guard so it stays inert.
 
 ```bash
 set -euo pipefail
-if rg -n -P 'uses:\s+[^\s#]+@(?![0-9a-f]{40}(?:\s|$))' .github/workflows; then exit 1; fi
-test "$(rg -l '^permissions:' .github/workflows | wc -l | tr -d ' ')" = "5"
+if rg -n -P 'uses:\s+[^\s#]+@(?![0-9a-f]{40}(?:\s|$))' .github/workflows; then
+  exit 1
+else
+  aurora_rg_status=$?
+  test "$aurora_rg_status" = "1"
+fi
+aurora_workflow_gate=$(mktemp -d /private/tmp/terraform-aws-rds-aurora-workflows.XXXXXX)
+rg -l '^permissions:' .github/workflows > "$aurora_workflow_gate/permissions"
+test "$(wc -l < "$aurora_workflow_gate/permissions" | tr -d ' ')" = "5"
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 git diff --check
 git add .github/workflows
@@ -449,10 +509,19 @@ git push
 
 ```bash
 set -euo pipefail
+aurora_validation_root=$(mktemp -d /private/tmp/terraform-aws-rds-aurora-validation.XXXXXX)
+aurora_docs_files="$aurora_validation_root/docs-files"
+aurora_docs_worklist="$aurora_validation_root/docs-directories"
+rg -l '<!-- BEGIN_TF_DOCS -->' -g README.md > "$aurora_docs_files"
+test -s "$aurora_docs_files"
+while IFS= read -r aurora_docs_file; do
+  dirname "$aurora_docs_file"
+done < "$aurora_docs_files" | sort -u > "$aurora_docs_worklist"
+test -s "$aurora_docs_worklist"
 while IFS= read -r aurora_docs_dir; do
   go run github.com/terraform-docs/terraform-docs@v0.20.0 markdown table \
     --lockfile=false --output-file README.md --output-mode inject "$aurora_docs_dir"
-done < <(rg -l '<!-- BEGIN_TF_DOCS -->' -g README.md | xargs -n1 dirname | sort -u)
+done < "$aurora_docs_worklist"
 git diff --exit-code
 terraform fmt -check -recursive
 aurora_tflint_tmp=$(mktemp -d)
@@ -468,11 +537,19 @@ unzip -q "$aurora_tflint_tmp/tflint.zip" -d "$aurora_tflint_tmp"
   --only=terraform_workspace_remote
 aurora_plugin_cache=$(mktemp -d)
 aurora_root_count=0
+aurora_versions_files="$aurora_validation_root/versions-files"
+aurora_tf_worklist="$aurora_validation_root/terraform-directories"
+rg --files -g versions.tf > "$aurora_versions_files"
+test -s "$aurora_versions_files"
+while IFS= read -r aurora_versions_file; do
+  dirname "$aurora_versions_file"
+done < "$aurora_versions_files" | sort -u > "$aurora_tf_worklist"
+test -s "$aurora_tf_worklist"
 while IFS= read -r aurora_tf_dir; do
   aurora_root_count=$((aurora_root_count + 1))
   TF_PLUGIN_CACHE_DIR="$aurora_plugin_cache" terraform -chdir="$aurora_tf_dir" init -backend=false -input=false
   TF_PLUGIN_CACHE_DIR="$aurora_plugin_cache" terraform -chdir="$aurora_tf_dir" validate
-done < <(rg --files -g versions.tf | xargs -n1 dirname | sort -u)
+done < "$aurora_tf_worklist"
 test "$aurora_root_count" = "13"
 ```
 
@@ -494,29 +571,42 @@ test -z "$(git -C "$aurora_verified_clone" status --porcelain)"
 mkdir "$aurora_compare_root/upstream"
 git -C "$aurora_verified_clone" archive --format=tar HEAD | \
   tar -xf - -C "$aurora_compare_root/upstream"
+aurora_tf_worklist="$aurora_compare_root/terraform-files"
+git -C "$aurora_verified_clone" ls-tree -r --name-only HEAD -- '*.tf' | sort \
+  > "$aurora_tf_worklist"
+test -s "$aurora_tf_worklist"
 while IFS= read -r aurora_tf_file; do
   case "$aurora_tf_file" in
     main.tf|variables.tf|wrappers/main.tf|examples/s3-import/main.tf) continue ;;
   esac
   diff -u "$aurora_compare_root/upstream/$aurora_tf_file" "$aurora_tf_file"
-done < <(git -C "$aurora_verified_clone" ls-tree -r --name-only HEAD -- '*.tf' | sort)
+done < "$aurora_tf_worklist"
 aurora_hcl_notice='# Modified by joeroberts/terraform-aws-rds-aurora on 2026-08-12; see UPSTREAM.md.'
 for aurora_hcl_file in main.tf variables.tf wrappers/main.tf \
   examples/s3-import/main.tf; do
   test "$(head -n 1 "$aurora_hcl_file")" = "$aurora_hcl_notice"
 done
-diff -u \
-  <(perl -pe 's/create = var\.create && var\.[A-Za-z0-9_]+/create = var.create/' "$aurora_compare_root/upstream/main.tf") \
-  <(sed '1d' main.tf)
-diff -u \
-  <(sed '858,862d' "$aurora_compare_root/upstream/variables.tf" | perl -0pe 's/\n+\z/\n/') \
-  <(sed '1d' variables.tf | perl -0pe 's/\n+\z/\n/')
-diff -u \
-  <(sed '95d' "$aurora_compare_root/upstream/wrappers/main.tf") \
-  <(sed '1d' wrappers/main.tf)
-diff -u \
-  <(perl -0pe 's#  source  = "terraform-aws-modules/s3-bucket/aws"\n  version = "~> 5\.0"#  source = "git::https://github.com/joeroberts/terraform-aws-s3.git?ref=v5.14.1-neutral.1"#' "$aurora_compare_root/upstream/examples/s3-import/main.tf") \
-  <(sed '1d' examples/s3-import/main.tf)
+perl -pe 's/create = var\.create && var\.[A-Za-z0-9_]+/create = var.create/' \
+  "$aurora_compare_root/upstream/main.tf" > "$aurora_compare_root/expected-main.tf"
+sed '1d' main.tf > "$aurora_compare_root/actual-main.tf"
+diff -u "$aurora_compare_root/expected-main.tf" "$aurora_compare_root/actual-main.tf"
+sed '858,862d' "$aurora_compare_root/upstream/variables.tf" | \
+  perl -0pe 's/\n+\z/\n/' > "$aurora_compare_root/expected-variables.tf"
+sed '1d' variables.tf | perl -0pe 's/\n+\z/\n/' \
+  > "$aurora_compare_root/actual-variables.tf"
+diff -u "$aurora_compare_root/expected-variables.tf" \
+  "$aurora_compare_root/actual-variables.tf"
+sed '95d' "$aurora_compare_root/upstream/wrappers/main.tf" \
+  > "$aurora_compare_root/expected-wrappers-main.tf"
+sed '1d' wrappers/main.tf > "$aurora_compare_root/actual-wrappers-main.tf"
+diff -u "$aurora_compare_root/expected-wrappers-main.tf" \
+  "$aurora_compare_root/actual-wrappers-main.tf"
+perl -0pe 's#  source  = "terraform-aws-modules/s3-bucket/aws"\n  version = "~> 5\.0"#  source = "git::https://github.com/joeroberts/terraform-aws-s3.git?ref=v5.14.1-neutral.1"#' \
+  "$aurora_compare_root/upstream/examples/s3-import/main.tf" \
+  > "$aurora_compare_root/expected-s3-import-main.tf"
+sed '1d' examples/s3-import/main.tf > "$aurora_compare_root/actual-s3-import-main.tf"
+diff -u "$aurora_compare_root/expected-s3-import-main.tf" \
+  "$aurora_compare_root/actual-s3-import-main.tf"
 rg -n '^  create = var\.create$' main.tf
 test "$(rg -c '^  create = var\.create$' main.tf)" = "1"
 {
@@ -551,19 +641,36 @@ go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 aurora_neutral_pattern="$(printf '%s|%s|%s|%s|%s|%s|%s' \
   'put''in' 'khuy''lo' 'ukr''ain' 'russ''ia' 'bela''rus' 'cri''mea' 'don''bas')"
 aurora_scan_status=0
+aurora_final_gate=$(mktemp -d /private/tmp/terraform-aws-rds-aurora-final.XXXXXX)
+aurora_scan_worklist="$aurora_final_gate/scan-files"
+find . -path './.git' -prune -o -path './.terraform' -prune -o \
+  -path './.superpowers' -prune -o -type f -print0 > "$aurora_scan_worklist"
+test -s "$aurora_scan_worklist"
 while IFS= read -r -d '' aurora_scan_file; do
   if rg -n -i "$aurora_neutral_pattern" -- "$aurora_scan_file"; then
     aurora_scan_status=1
+  else
+    aurora_rg_status=$?
+    test "$aurora_rg_status" = "1"
   fi
-done < <(find . -path './.git' -prune -o -path './.terraform' -prune -o \
-  -path './.superpowers' -prune -o -type f -print0)
+done < "$aurora_scan_worklist"
 test "$aurora_scan_status" = "0"
-if git grep -nEi "$aurora_neutral_pattern" $(git rev-list --all); then exit 1; fi
+aurora_revisions="$aurora_final_gate/revisions"
+git rev-list --all > "$aurora_revisions"
+test -s "$aurora_revisions"
+if git grep -nEi "$aurora_neutral_pattern" $(cat "$aurora_revisions"); then
+  exit 1
+else
+  aurora_git_grep_status=$?
+  test "$aurora_git_grep_status" = "1"
+fi
 git diff --check
 test -z "$(git status --porcelain)"
 git fetch origin neutral/v10.2.0-neutral.1
 test "$(git rev-parse HEAD)" = "$(git rev-parse origin/neutral/v10.2.0-neutral.1)"
-test -z "$(git ls-remote --tags origin refs/tags/v10.2.0-neutral.1)"
+git ls-remote --tags origin refs/tags/v10.2.0-neutral.1 \
+  > "$aurora_final_gate/reserved-tag"
+test ! -s "$aurora_final_gate/reserved-tag"
 ```
 
 Expected: all assertions pass, history is neutral, branch is synchronized, and no tag exists.
