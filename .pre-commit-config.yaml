@@ -3,7 +3,8 @@ repos:
     rev: v1.105.0
     hooks:
       - id: terraform_fmt
-      - id: terraform_wrapper_module_for_each
+      # The upstream wrapper generator cannot preserve derivative-specific
+      # source URLs or provenance notices, so wrappers are maintained directly.
       - id: terraform_docs
         args:
           - '--args=--lockfile=false'
